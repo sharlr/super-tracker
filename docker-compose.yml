@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  st-postgres:
+    image: postgres:16-alpine
+    container_name: st-postgres
+    environment:
+      POSTGRES_USER: st_admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-SecurePassword123!}
+      POSTGRES_INITDB_ARGS: "-c shared_buffers=256MB -c effective_cache_size=512MB"
+    volumes:
+      - st_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - st-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U st_admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  st-api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: st-api
+    environment:
+      NODE_ENV: production
+      PORT: 4010
+      DB_USER: st_admin
+      DB_HOST: st-postgres
+      DB_PASSWORD: ${DB_PASSWORD:-SecurePassword123!}
+      DB_PORT: 5432
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      REDIS_URL: redis://localhost:6379
+    ports:
+      - "4010:4010"
+    depends_on:
+      st-postgres:
+        condition: service_healthy
+    networks:
+      - st-network
+    volumes:
+      - ./apps/api/dist:/app/dist
+      - st_uploads:/app/uploads
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  st-admin:
+    build:
+      context: ./apps/admin
+      dockerfile: Dockerfile
+    container_name: st-admin
+    ports:
+      - "4011:80"
+    networks:
+      - st-network
+    depends_on:
+      - st-api
+    environment:
+      REACT_APP_API_URL: http://localhost:4010
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 64M
+        reservations:
+          cpus: '0.1'
+          memory: 32M
+
+volumes:
+  st_postgres_data:
+    driver: local
+  st_uploads:
+    driver: local
+
+networks:
+  st-network:
+    driver: bridge
